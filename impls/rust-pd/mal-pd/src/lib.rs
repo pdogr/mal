@@ -1,12 +1,11 @@
 extern crate rustyline;
-pub use rustyline::error::ReadlineError;
-pub use rustyline::Editor;
+pub use rustyline::{error::ReadlineError, Editor};
 extern crate nom;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub mod ast;
+pub mod lexer;
+pub(crate) mod parser;
+pub mod tokens;
+pub(crate) mod utils;
+pub use lexer::MalLexer;
+pub use nom::Finish;
+pub use parser::parse_type as parse;
