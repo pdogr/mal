@@ -1,4 +1,4 @@
-use crate::tokens::MalToken;
+use crate::{tokens::MalToken, Result};
 use std::{
     borrow::Cow,
     fmt::{Display, Formatter},
@@ -15,6 +15,7 @@ pub enum MalType<'a> {
     Deref(MalAtom<'a>),
     WithMeta(Box<MalType<'a>>, Box<MalType<'a>>),
     SpliceUnquote(Box<MalType<'a>>),
+    Func(fn(Vec<MalType<'a>>) -> Result<MalType<'a>>),
 }
 
 impl<'a> Display for MalType<'a> {
@@ -30,6 +31,7 @@ impl<'a> Display for MalType<'a> {
             MalType::Deref(a) => write!(f, "({} {})", MalToken::Deref, a),
             MalType::WithMeta(a, b) => write!(f, "({} {} {})", MalToken::WithMeta, b, a),
             MalType::SpliceUnquote(s) => write!(f, "({} {})", MalToken::SpliceUnquote, s),
+            MalType::Func(_) => write!(f, "func "),
         }
     }
 }
@@ -65,7 +67,7 @@ pub enum MalLiteral<'a> {
 }
 
 impl<'a> Display for MalLiteral<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MalLiteral::Int(i) => write!(f, "{}", i),
             MalLiteral::Float(fs) => write!(f, "{}", fs),
@@ -86,7 +88,7 @@ impl<'a> PartialEq for MalLiteral<'a> {
 }
 impl<'a> Eq for MalLiteral<'a> {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MalSymbol<'a> {
     ident: Cow<'a, str>,
 }
@@ -109,7 +111,7 @@ impl<'a> MalSymbol<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalList<'a>(Vec<MalType<'a>>);
+pub struct MalList<'a>(pub Vec<MalType<'a>>);
 impl<'a> MalList<'a> {
     pub fn new(types: Vec<MalType<'a>>) -> Self {
         Self(types)
@@ -142,7 +144,7 @@ impl<'a> Display for MalList<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalVec<'a>(Vec<MalType<'a>>);
+pub struct MalVec<'a>(pub Vec<MalType<'a>>);
 impl<'a> MalVec<'a> {
     pub fn new(types: Vec<MalType<'a>>) -> Self {
         Self(types)
@@ -176,7 +178,7 @@ impl<'a> Display for MalVec<'a> {
 
 // MalAtom -> MalType, MalAtom => HashKey | Literal::Str
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalHashMap<'a>(Vec<(MalAtom<'a>, MalType<'a>)>);
+pub struct MalHashMap<'a>(pub Vec<(MalAtom<'a>, MalType<'a>)>);
 
 impl<'a> MalHashMap<'a> {
     pub fn new(v: Vec<(MalAtom<'a>, MalType<'a>)>) -> Self {
