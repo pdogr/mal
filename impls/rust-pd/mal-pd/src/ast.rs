@@ -1,24 +1,24 @@
 use crate::{tokens::MalToken, Result};
 use std::{
-    borrow::Cow,
     fmt::{Display, Formatter},
+    rc::Rc,
 };
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MalType<'a> {
-    List(MalList<'a>),
-    Atom(MalAtom<'a>),
-    Vector(MalVec<'a>),
-    HashMap(MalHashMap<'a>),
-    Quoted(Box<MalType<'a>>),
-    QuasiQuoted(Box<MalType<'a>>),
-    Unquote(Box<MalType<'a>>),
-    Deref(MalAtom<'a>),
-    WithMeta(Box<MalType<'a>>, Box<MalType<'a>>),
-    SpliceUnquote(Box<MalType<'a>>),
-    Func(fn(Vec<MalType<'a>>) -> Result<MalType<'a>>),
+pub enum MalType {
+    List(MalList),
+    Atom(MalAtom),
+    Vector(MalVec),
+    HashMap(MalHashMap),
+    Quoted(Box<MalType>),
+    QuasiQuoted(Box<MalType>),
+    Unquote(Box<MalType>),
+    Deref(MalAtom),
+    WithMeta(Box<MalType>, Box<MalType>),
+    SpliceUnquote(Box<MalType>),
+    Func(fn(Vec<MalType>) -> Result<MalType>),
 }
 
-impl<'a> Display for MalType<'a> {
+impl Display for MalType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MalType::List(l) => write!(f, "{}", l),
@@ -37,16 +37,16 @@ impl<'a> Display for MalType<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MalAtom<'a> {
+pub enum MalAtom {
     Nil,
     Bool(bool),
-    Literal(MalLiteral<'a>),
+    Literal(MalLiteral),
     Keyword(&'static str),
-    Symbol(MalSymbol<'a>),
-    HashKey(Cow<'a, str>),
+    Symbol(MalSymbol),
+    HashKey(Rc<str>),
 }
 
-impl<'a> Display for MalAtom<'a> {
+impl Display for MalAtom {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MalAtom::Nil => write!(f, "nil"),
@@ -60,13 +60,13 @@ impl<'a> Display for MalAtom<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum MalLiteral<'a> {
+pub enum MalLiteral {
     Int(i64),
     Float(f64),
-    Str(Cow<'a, str>),
+    Str(Rc<str>),
 }
 
-impl<'a> Display for MalLiteral<'a> {
+impl Display for MalLiteral {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MalLiteral::Int(i) => write!(f, "{}", i),
@@ -76,7 +76,7 @@ impl<'a> Display for MalLiteral<'a> {
     }
 }
 
-impl<'a> PartialEq for MalLiteral<'a> {
+impl PartialEq for MalLiteral {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Int(l0), Self::Int(r0)) => *l0 == *r0,
@@ -86,39 +86,40 @@ impl<'a> PartialEq for MalLiteral<'a> {
         }
     }
 }
-impl<'a> Eq for MalLiteral<'a> {}
+impl Eq for MalLiteral {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MalSymbol<'a> {
-    ident: Cow<'a, str>,
+pub struct MalSymbol {
+    ident: Rc<str>,
 }
 
-impl<'a> Display for MalSymbol<'a> {
+impl Display for MalSymbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.ident)
     }
 }
 
-impl<'a> MalSymbol<'a> {
-    pub fn new<'b>(ident: &'b str) -> Self
-    where
-        'b: 'a,
-    {
+impl MalSymbol {
+    pub fn new(ident: &str) -> Self {
         Self {
-            ident: Cow::Borrowed(ident),
+            ident: ident.into(),
         }
+    }
+
+    pub fn strcmp(&self, o: &str) -> bool {
+        self.ident.as_ref() == o
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalList<'a>(pub Vec<MalType<'a>>);
-impl<'a> MalList<'a> {
-    pub fn new(types: Vec<MalType<'a>>) -> Self {
+pub struct MalList(pub Vec<MalType>);
+impl MalList {
+    pub fn new(types: Vec<MalType>) -> Self {
         Self(types)
     }
 }
 
-impl<'a> Display for MalList<'a> {
+impl Display for MalList {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
         match self.0.len() {
@@ -144,14 +145,14 @@ impl<'a> Display for MalList<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalVec<'a>(pub Vec<MalType<'a>>);
-impl<'a> MalVec<'a> {
-    pub fn new(types: Vec<MalType<'a>>) -> Self {
+pub struct MalVec(pub Vec<MalType>);
+impl MalVec {
+    pub fn new(types: Vec<MalType>) -> Self {
         Self(types)
     }
 }
 
-impl<'a> Display for MalVec<'a> {
+impl Display for MalVec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;
         match self.0.len() {
@@ -178,15 +179,15 @@ impl<'a> Display for MalVec<'a> {
 
 // MalAtom -> MalType, MalAtom => HashKey | Literal::Str
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalHashMap<'a>(pub Vec<(MalAtom<'a>, MalType<'a>)>);
+pub struct MalHashMap(pub Vec<(MalAtom, MalType)>);
 
-impl<'a> MalHashMap<'a> {
-    pub fn new(v: Vec<(MalAtom<'a>, MalType<'a>)>) -> Self {
+impl MalHashMap {
+    pub fn new(v: Vec<(MalAtom, MalType)>) -> Self {
         Self(v)
     }
 }
 
-impl<'a> Display for MalHashMap<'a> {
+impl Display for MalHashMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         match self.0.len() {

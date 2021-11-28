@@ -13,10 +13,10 @@ fn main() {
         match r {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                if line.len() > 0 {
+                if !line.is_empty() {
                     match MalLexer::lex(line.as_str()) {
                         Ok(t) => {
-                            let t = MalTokens(&t.as_slice());
+                            let t = MalTokens(t.as_slice());
                             match parse(t).finish() {
                                 Ok((_, r)) => println!("{}", r),
                                 Err(e) => {

@@ -8,7 +8,7 @@ fn main() {
         match r {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                if line.len() > 0 {
+                if !line.is_empty() {
                     println!("{}", line);
                 }
             }

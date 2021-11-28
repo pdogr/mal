@@ -10,6 +10,7 @@ use mal::MalLexer;
 use mal::ReadlineError;
 fn main() {
     let mut rl = Editor::<()>::new();
+    let env = MalEnv::new();
     loop {
         let r = rl.readline("user> ");
         match r {
@@ -20,15 +21,12 @@ fn main() {
                         Ok(t) => {
                             let t = MalTokens(t.as_slice());
                             match parse(t).finish() {
-                                Ok((_, ast)) => {
-                                    let env = MalEnv::new();
-                                    match eval(ast, &env) {
-                                        Ok(res) => println!("{}", res),
-                                        Err(e) => {
-                                            println!("Error in eval {}", e)
-                                        }
+                                Ok((_, ast)) => match eval(ast, &env) {
+                                    Ok(res) => println!("{}", res),
+                                    Err(e) => {
+                                        println!("Error in eval {}", e)
                                     }
-                                }
+                                },
                                 Err(e) => {
                                     println!("unbalanced {:?}", e);
                                     continue;

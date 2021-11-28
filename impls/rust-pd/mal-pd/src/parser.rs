@@ -2,12 +2,13 @@ use crate::{ast::*, tokens::*, utils::escape};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
-    character::complete::{anychar},
+    character::complete::anychar,
     combinator::{complete, map, map_res, opt, recognize, value},
     multi::{many0, many1},
-    sequence::{delimited, preceded, tuple}, IResult,
+    sequence::{delimited, preceded, tuple},
+    IResult,
 };
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 
 #[allow(unused_macros)]
 macro_rules! tag {
@@ -39,7 +40,7 @@ fn take1<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalTokens<'a>> {
     take(1usize)(i)
 }
 
-fn parse_keyword<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom<'a>> {
+fn parse_keyword<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
     map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
         alt::<_, _, nom::error::Error<&str>, _>((
             value(MalAtom::Nil, keyword!("nil")),
@@ -50,10 +51,10 @@ fn parse_keyword<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom<'a>> {
     })(i)
 }
 
-fn parse_literal<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalLiteral<'a>> {
+fn parse_literal<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalLiteral> {
     alt((
         map(tag!(MalToken::QuotedSequence(s)), |s: &str| {
-            MalLiteral::Str(escape(s))
+            MalLiteral::Str(escape(s).into())
         }),
         map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
             complete::<_, _, nom::error::Error<&str>, _>(alt((
@@ -65,17 +66,17 @@ fn parse_literal<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalLiteral<'a>>
     ))(i)
 }
 
-fn parse_symbol<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalSymbol<'a>> {
-    map(tag!(MalToken::Sequence(s)), |s: &str| MalSymbol::new(s))(i)
+fn parse_symbol<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalSymbol> {
+    map(tag!(MalToken::Sequence(s)), MalSymbol::new)(i)
 }
 
-fn parse_hashkey<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom<'a>> {
+fn parse_hashkey<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
     map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
         preceded::<_, _, _, nom::error::Error<&str>, _, _>(tag(":"), recognize(many1(anychar)))(s)
-            .map(|(_, r)| MalAtom::HashKey(Cow::Borrowed(r)))
+            .map(|(_, r)| MalAtom::HashKey(r.into()))
     })(i)
 }
-fn parse_atom<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom<'a>> {
+fn parse_atom<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
     alt((
         parse_keyword,
         map(parse_literal, MalAtom::Literal),
@@ -84,26 +85,26 @@ fn parse_atom<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom<'a>> {
     ))(i)
 }
 
-fn parse_list<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalList<'a>> {
+fn parse_list<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalList> {
     map(opt(many0(parse_type)), |ws| {
         MalList::new(ws.unwrap_or_default())
     })(i)
 }
 
-fn parse_vector<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalVec<'a>> {
+fn parse_vector<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalVec> {
     map(opt(many0(parse_type)), |ws| {
         MalVec::new(ws.unwrap_or_default())
     })(i)
 }
 
-fn parse_hashmap<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalHashMap<'a>> {
-    map_res(opt(many0(parse_type)), |ws: Option<Vec<MalType<'a>>>| {
+fn parse_hashmap<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalHashMap> {
+    map_res(opt(many0(parse_type)), |ws: Option<Vec<MalType>>| {
         let ws = ws.unwrap_or_default();
         if ws.len() & 1 == 1 {
-            return Err(nom::Err::Error(nom::error::Error {
+            Err(nom::Err::Error(nom::error::Error {
                 input: ws,
                 code: nom::error::ErrorKind::Count,
-            }));
+            }))
         } else {
             let mut vec = Vec::new();
             for kv in ws.chunks_exact(2) {
@@ -133,7 +134,7 @@ fn parse_hashmap<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalHashMap<'a>>
     })(i)
 }
 
-pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType<'a>> {
+pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
     alt((
         map(
             delimited(
@@ -186,6 +187,7 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType<'a>> {
 mod tests {
     use super::*;
     use crate::{lexer::MalLexer, tokens::MalTokens};
+    use nom::*;
 
     #[allow(unused_macros)]
     macro_rules! check {

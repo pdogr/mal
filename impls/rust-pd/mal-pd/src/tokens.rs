@@ -13,8 +13,8 @@ use std::{
     iter::Enumerate,
     ops::{Index, RangeFrom, RangeFull, RangeTo},
 };
-const MAL_SEP: &'static str = "\t \r\n,";
-const MAL_DELIM: &'static str = "[]{}()\'\"`~^@\t \r\n,;";
+const MAL_SEP: &str = "\t \r\n,";
+const MAL_DELIM: &str = "[]{}()\'\"`~^@\t \r\n,;";
 
 fn ws0(i: &str) -> IResult<&str, &str> {
     recognize(many0(one_of(MAL_SEP)))(i)
@@ -167,7 +167,7 @@ impl<'a> InputIter for MalTokens<'a> {
     where
         P: Fn(Self::Item) -> bool,
     {
-        self.0.iter().position(|b| predicate(&b))
+        self.0.iter().position(|b| predicate(b))
     }
 
     fn slice_index(&self, count: usize) -> Result<usize, nom::Needed> {
@@ -184,7 +184,7 @@ impl<'a, 'b> Compare<MalTokens<'b>> for MalTokens<'a> {
     fn compare(&self, t: MalTokens<'b>) -> nom::CompareResult {
         let pos = self.0.iter().zip(t.0.iter()).position(|(a, b)| a != b);
         match pos {
-            Some(__) => CompareResult::Error,
+            Some(_) => CompareResult::Error,
             None => {
                 if self.0.len() >= t.0.len() {
                     CompareResult::Ok
