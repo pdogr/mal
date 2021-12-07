@@ -1,92 +1,52 @@
-use crate::{tokens::MalToken, Result};
+use crate::{eval::eval, MalEnv, Result};
 use std::{
     fmt::{Display, Formatter},
     rc::Rc,
 };
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MalType {
-    List(MalList),
-    Atom(MalAtom),
-    Vector(MalVec),
-    HashMap(MalHashMap),
-    Quoted(Box<MalType>),
-    QuasiQuoted(Box<MalType>),
-    Unquote(Box<MalType>),
-    Deref(MalAtom),
-    WithMeta(Box<MalType>, Box<MalType>),
-    SpliceUnquote(Box<MalType>),
-    Func(fn(Vec<MalType>) -> Result<MalType>),
-}
-
-impl Display for MalType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MalType::List(l) => write!(f, "{}", l),
-            MalType::Atom(a) => write!(f, "{}", a),
-            MalType::Vector(v) => write!(f, "{}", v),
-            MalType::HashMap(h) => write!(f, "{}", h),
-            MalType::Quoted(q) => write!(f, "({} {})", MalToken::Quote, q),
-            MalType::QuasiQuoted(q) => write!(f, "({} {})", MalToken::QuasiQuote, q),
-            MalType::Unquote(q) => write!(f, "({} {})", MalToken::Unquote, q),
-            MalType::Deref(a) => write!(f, "({} {})", MalToken::Deref, a),
-            MalType::WithMeta(a, b) => write!(f, "({} {} {})", MalToken::WithMeta, b, a),
-            MalType::SpliceUnquote(s) => write!(f, "({} {})", MalToken::SpliceUnquote, s),
-            MalType::Func(_) => write!(f, "func "),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MalAtom {
-    Nil,
-    Bool(bool),
-    Literal(MalLiteral),
-    Keyword(&'static str),
-    Symbol(MalSymbol),
-    HashKey(Rc<str>),
-}
-
-impl Display for MalAtom {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MalAtom::Nil => write!(f, "nil"),
-            MalAtom::Bool(b) => write!(f, "{}", b),
-            MalAtom::Literal(l) => write!(f, "{}", l),
-            MalAtom::Keyword(k) => write!(f, "{}", k),
-            MalAtom::Symbol(s) => write!(f, "{}", s),
-            MalAtom::HashKey(k) => write!(f, ":{}", k),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
-pub enum MalLiteral {
+pub enum MalType {
+    Nil,
+    Bool(bool),
     Int(i64),
     Float(f64),
     Str(Rc<str>),
+    Keyword(&'static str),
+    Symbol(MalSymbol),
+    HashKey(Rc<str>),
+    List(MalList),
+    Vector(MalVec),
+    HashMap(MalHashMap),
+    Func(Box<MalFunc>),
+    WithMeta(Box<MalType>, Box<MalType>),
+    Quoted(Box<MalType>),
+    QuasiQuoted(Box<MalType>),
+    Unquote(Box<MalType>),
+    Deref(Box<MalType>),
+    SpliceUnquote(Box<MalType>),
 }
 
-impl Display for MalLiteral {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MalLiteral::Int(i) => write!(f, "{}", i),
-            MalLiteral::Float(fs) => write!(f, "{}", fs),
-            MalLiteral::Str(s) => write!(f, "\"{}\"", s),
-        }
-    }
-}
-
-impl PartialEq for MalLiteral {
+impl PartialEq for MalType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Int(l0), Self::Int(r0)) => *l0 == *r0,
-            (Self::Float(l0), Self::Float(r0)) => *l0 == *r0,
-            (Self::Str(l0), Self::Str(r0)) => *l0 == *r0,
-            _ => false,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::Int(l0), Self::Int(r0)) => l0 == r0,
+            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
+            (Self::Str(l0), Self::Str(r0)) => l0 == r0,
+            (Self::Keyword(l0), Self::Keyword(r0)) => l0 == r0,
+            (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            (Self::HashKey(l0), Self::HashKey(r0)) => l0 == r0,
+            (Self::List(l0), Self::List(r0)) => l0 == r0,
+            (Self::Vector(l0), Self::Vector(r0)) => l0 == r0,
+            (Self::Vector(MalVec(v)), Self::List(MalList(l)))
+            | (Self::List(MalList(l)), Self::Vector(MalVec(v))) => l == v,
+            (Self::HashMap(l0), Self::HashMap(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
 }
-impl Eq for MalLiteral {}
+
+impl Eq for MalType {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MalSymbol {
@@ -111,36 +71,17 @@ impl MalSymbol {
     }
 }
 
+impl Into<MalSymbol> for &str {
+    fn into(self) -> MalSymbol {
+        MalSymbol { ident: self.into() }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MalList(pub Vec<MalType>);
 impl MalList {
     pub fn new(types: Vec<MalType>) -> Self {
         Self(types)
-    }
-}
-
-impl Display for MalList {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(")?;
-        match self.0.len() {
-            0 => {}
-            1 => {
-                unsafe {
-                    write!(f, "{}", self.0.get_unchecked(0))?;
-                };
-            }
-            _ => {
-                unsafe {
-                    write!(f, "{}", self.0.get_unchecked(0))?;
-                };
-                for i in 1..self.0.len() {
-                    unsafe {
-                        write!(f, " {}", self.0.get_unchecked(i))?;
-                    };
-                }
-            }
-        }
-        write!(f, ")")
     }
 }
 
@@ -152,65 +93,49 @@ impl MalVec {
     }
 }
 
-impl Display for MalVec {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[")?;
-        match self.0.len() {
-            0 => {}
-            1 => {
-                unsafe {
-                    write!(f, "{}", self.0.get_unchecked(0))?;
-                };
-            }
-            _ => {
-                unsafe {
-                    write!(f, "{}", self.0.get_unchecked(0))?;
-                };
-                for i in 1..self.0.len() {
-                    unsafe {
-                        write!(f, " {}", self.0.get_unchecked(i))?;
-                    };
-                }
-            }
-        }
-        write!(f, "]")
-    }
-}
-
-// MalAtom -> MalType, MalAtom => HashKey | Literal::Str
+// MalType -> MalType, MalAtom => HashKey | Literal::Str
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MalHashMap(pub Vec<(MalAtom, MalType)>);
+pub struct MalHashMap(pub Vec<(MalType, MalType)>);
 
 impl MalHashMap {
-    pub fn new(v: Vec<(MalAtom, MalType)>) -> Self {
+    pub fn new(v: Vec<(MalType, MalType)>) -> Self {
         Self(v)
     }
 }
 
-impl Display for MalHashMap {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
-        match self.0.len() {
-            0 => {}
-            1 => {
-                unsafe {
-                    let (k, v) = self.0.get_unchecked(0);
-                    write!(f, "{} {}", k, v)?;
-                };
-            }
-            _ => {
-                unsafe {
-                    let (k, v) = self.0.get_unchecked(0);
-                    write!(f, "{} {}", k, v)?;
-                };
-                for i in 1..self.0.len() {
-                    unsafe {
-                        let (k, v) = self.0.get_unchecked(i);
-                        write!(f, " {} {}", k, v)?;
-                    };
-                }
-            }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MalFunc {
+    args: Vec<MalSymbol>,
+    body: MalType,
+    closure: Option<fn(Vec<MalType>) -> Result<MalType>>,
+    env: Option<Rc<MalEnv>>,
+}
+
+impl MalFunc {
+    pub fn from_closure(closure: fn(Vec<MalType>) -> Result<MalType>) -> Self {
+        Self {
+            args: Vec::new(),
+            body: MalType::Nil,
+            closure: Some(closure),
+            env: None,
         }
-        write!(f, "}}")
+    }
+
+    pub fn from_binds(args: Vec<MalSymbol>, body: MalType, env: &Rc<MalEnv>) -> Self {
+        Self {
+            args,
+            body,
+            closure: None,
+            env: Some(env.clone()),
+        }
+    }
+
+    pub fn call(&self, exprs: Vec<MalType>) -> Result<MalType> {
+        if let Some(f) = self.closure {
+            (f)(exprs)
+        } else {
+            let env = MalEnv::from_binds(self.args.clone(), exprs, &self.env.clone().unwrap());
+            return eval(self.body.clone(), env);
+        }
     }
 }

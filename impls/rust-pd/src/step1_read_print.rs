@@ -1,6 +1,7 @@
 extern crate mal;
 
 use mal::parse;
+use mal::print;
 use mal::tokens::MalTokens;
 use mal::Editor;
 use mal::Finish;
@@ -18,7 +19,7 @@ fn main() {
                         Ok(t) => {
                             let t = MalTokens(t.as_slice());
                             match parse(t).finish() {
-                                Ok((_, r)) => println!("{}", r),
+                                Ok((_, r)) => println!("{}", print(&r, true)),
                                 Err(e) => {
                                     println!("unbalanced {:?}", e);
                                     continue;

@@ -1,29 +1,12 @@
 use crate::{
-    ast::{MalAtom, MalLiteral, MalSymbol, MalType},
-    Result,
+    ast::{MalList, MalSymbol, MalType},
+    print, Result,
 };
 use std::{
     cell::{Ref, RefCell},
     collections::HashMap,
     rc::Rc,
 };
-#[allow(unused_macros)]
-macro_rules! binary_func {
-    ($a: ident, $op: tt) => { {
-        let a1 = &$a[0];
-        let a2 = &$a[1];
-
-            if let (
-                MalType::Atom(MalAtom::Literal(MalLiteral::Int(i))),
-                MalType::Atom(MalAtom::Literal(MalLiteral::Int(j))),
-            ) = (a1, a2)
-            {
-                return Ok(MalType::Atom(MalAtom::Literal(MalLiteral::Int(i $op j))));
-            }
-            Err(format!("could not use op").into())
-    }
-};
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MalEnv {
@@ -33,28 +16,32 @@ pub struct MalEnv {
 
 impl MalEnv {
     pub fn new() -> Rc<Self> {
-        let mut map = HashMap::new();
-        map.insert(
-            MalSymbol::new("+"),
-            MalType::Func(|args: Vec<MalType>| binary_func!(args,+)),
-        );
-        map.insert(
-            MalSymbol::new("-"),
-            MalType::Func(|args: Vec<MalType>| binary_func!(args,-)),
-        );
-        map.insert(
-            MalSymbol::new("*"),
-            MalType::Func(|args: Vec<MalType>| binary_func!(args,*)),
-        );
-        map.insert(
-            MalSymbol::new("/"),
-            MalType::Func(|args: Vec<MalType>| binary_func!(args,/)),
-        );
         Rc::new(Self {
-            map: RefCell::new(map),
+            map: RefCell::new(HashMap::new()),
             outer: None,
         })
     }
+
+    pub fn insert(&self, ms: MalSymbol, mt: MalType) {
+        self.map.borrow_mut().insert(ms, mt);
+    }
+
+    pub fn from_binds(binds: Vec<MalSymbol>, exprs: Vec<MalType>, outer: &Rc<MalEnv>) -> Rc<Self> {
+        let env = MalEnv::detach(outer);
+        for (i, ms) in binds.iter().enumerate() {
+            if ms.strcmp("&") {
+                env.insert(
+                    binds[i + 1].clone(),
+                    MalType::List(MalList::new(exprs[i..].to_vec())),
+                );
+                break;
+            } else {
+                env.insert(ms.clone(), exprs[i].clone());
+            }
+        }
+        env
+    }
+
     pub fn detach(outer: &Rc<MalEnv>) -> Rc<Self> {
         Rc::new(Self {
             map: RefCell::new(HashMap::new()),
@@ -81,10 +68,10 @@ impl MalEnv {
     }
 
     pub fn set(&self, k: &MalType, v: MalType) -> Result<()> {
-        if let MalType::Atom(MalAtom::Symbol(ms)) = k {
-            self.map.borrow_mut().insert(ms.clone(), v);
+        if let MalType::Symbol(s) = k {
+            self.map.borrow_mut().insert(s.clone(), v);
             return Ok(());
         }
-        Err(format!("unable to set on non symbol, found {}", k).into())
+        Err(format!("unable to set on non symbol, found {}", print(k, true)).into())
     }
 }

@@ -1,15 +1,17 @@
 extern crate mal;
 
 use mal::eval;
+use mal::make_env;
 use mal::parse;
+use mal::print;
 use mal::tokens::MalTokens;
 use mal::Editor;
 use mal::Finish;
-use mal::MalEnv;
 use mal::MalLexer;
 use mal::ReadlineError;
 fn main() {
     let mut rl = Editor::<()>::new();
+    let env = make_env();
     loop {
         let r = rl.readline("user> ");
         match r {
@@ -20,15 +22,12 @@ fn main() {
                         Ok(t) => {
                             let t = MalTokens(t.as_slice());
                             match parse(t).finish() {
-                                Ok((_, ast)) => {
-                                    let env = MalEnv::new();
-                                    match eval(ast, &env) {
-                                        Ok(res) => println!("{}", res),
-                                        Err(e) => {
-                                            println!("Error in eval {}", e)
-                                        }
+                                Ok((_, ast)) => match eval(ast, env.clone()) {
+                                    Ok(res) => println!("{}", print(&res, true)),
+                                    Err(e) => {
+                                        println!("Error in eval {}", e)
                                     }
-                                }
+                                },
                                 Err(e) => {
                                     println!("unbalanced {:?}", e);
                                     continue;

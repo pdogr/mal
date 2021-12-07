@@ -1,4 +1,4 @@
-use crate::{ast::*, tokens::*, utils::escape};
+use crate::{ast::*, tokens::*};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take},
@@ -40,49 +40,26 @@ fn take1<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalTokens<'a>> {
     take(1usize)(i)
 }
 
-fn parse_keyword<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
+fn parse_keyword<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
     map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
         alt::<_, _, nom::error::Error<&str>, _>((
-            value(MalAtom::Nil, keyword!("nil")),
-            value(MalAtom::Bool(true), keyword!("true")),
-            value(MalAtom::Bool(false), keyword!("false")),
+            value(MalType::Nil, keyword!("nil")),
+            value(MalType::Bool(true), keyword!("true")),
+            value(MalType::Bool(false), keyword!("false")),
         ))(s)
         .map(|(_, r)| r)
     })(i)
-}
-
-fn parse_literal<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalLiteral> {
-    alt((
-        map(tag!(MalToken::QuotedSequence(s)), |s: &str| {
-            MalLiteral::Str(escape(s).into())
-        }),
-        map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
-            complete::<_, _, nom::error::Error<&str>, _>(alt((
-                map(nom::character::complete::i64, MalLiteral::Int),
-                map(nom::number::complete::double, MalLiteral::Float),
-            )))(s)
-            .map(|(_, r)| r)
-        }),
-    ))(i)
 }
 
 fn parse_symbol<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalSymbol> {
     map(tag!(MalToken::Sequence(s)), MalSymbol::new)(i)
 }
 
-fn parse_hashkey<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
+fn parse_hashkey<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
     map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
         preceded::<_, _, _, nom::error::Error<&str>, _, _>(tag(":"), recognize(many1(anychar)))(s)
-            .map(|(_, r)| MalAtom::HashKey(r.into()))
+            .map(|(_, r)| MalType::HashKey(r.into()))
     })(i)
-}
-fn parse_atom<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalAtom> {
-    alt((
-        parse_keyword,
-        map(parse_literal, MalAtom::Literal),
-        parse_hashkey,
-        map(parse_symbol, MalAtom::Symbol),
-    ))(i)
 }
 
 fn parse_list<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalList> {
@@ -110,15 +87,7 @@ fn parse_hashmap<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalHashMap> {
             for kv in ws.chunks_exact(2) {
                 let (k, v) = kv.split_at(1);
                 let k = match k.get(0).unwrap() {
-                    MalType::Atom(a) => match &a {
-                        MalAtom::Literal(_) | MalAtom::HashKey(_) => a,
-                        _ => {
-                            return Err(nom::Err::Error(nom::error::Error {
-                                input: ws,
-                                code: nom::error::ErrorKind::Tag,
-                            }));
-                        }
-                    },
+                    MalType::Str(_) | MalType::HashKey(_) => k.get(0).unwrap(),
                     _ => {
                         return Err(nom::Err::Error(nom::error::Error {
                             input: ws,
@@ -169,8 +138,8 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
         map(preceded(tag!(MalToken::Unquote), parse_type), |q| {
             MalType::Unquote(Box::new(q))
         }),
-        map(preceded(tag!(MalToken::Deref), parse_atom), |q| {
-            MalType::Deref(q)
+        map(preceded(tag!(MalToken::Deref), parse_type), |q| {
+            MalType::Deref(Box::new(q))
         }),
         map(
             preceded(tag!(MalToken::WithMeta), tuple((parse_type, parse_type))),
@@ -179,14 +148,26 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
         map(preceded(tag!(MalToken::SpliceUnquote), parse_type), |q| {
             MalType::SpliceUnquote(Box::new(q))
         }),
-        map(parse_atom, MalType::Atom),
+        parse_hashkey,
+        parse_keyword,
+        map(tag!(MalToken::QuotedSequence(s)), |s: &str| {
+            MalType::Str(s.into())
+        }),
+        map_res(tag!(MalToken::Sequence(s)), move |s: &str| {
+            complete::<_, _, nom::error::Error<&str>, _>(alt((
+                map(nom::character::complete::i64, MalType::Int),
+                map(nom::number::complete::double, MalType::Float),
+            )))(s)
+            .map(|(_, r)| r)
+        }),
+        map(parse_symbol, MalType::Symbol),
     ))(i)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lexer::MalLexer, tokens::MalTokens};
+    use crate::{lexer::MalLexer, print, tokens::MalTokens};
     use nom::*;
 
     #[allow(unused_macros)]
@@ -196,52 +177,38 @@ mod tests {
             println!("{:?}", t);
             let t = MalTokens(t.as_slice());
             let (_, r) = $fn(t).finish().unwrap();
-            assert_eq!($expected, format!("{}", r));
+            assert_eq!($expected, format!("{}", print(&r, true)));
         }};
     }
 
     #[test]
     fn parse_int0() {
-        check!(parse_literal, "123", "123");
+        check!(parse_type, "123", "123");
     }
 
     #[test]
     fn parse_str0() {
-        check!(parse_literal, "\"123\"", "\"123\"");
+        check!(parse_type, "\"123\"", "\"123\"");
     }
 
     #[test]
     fn parse_sym0() {
-        check!(parse_symbol, "abc", "abc");
+        check!(parse_type, "abc", "abc");
     }
 
     #[test]
     fn parse_str1() {
-        check!(parse_literal, "\"\\\\\"", "\"\\\\\"");
-    }
-
-    #[test]
-    fn parse_atom0() {
-        check!(parse_atom, "doge", "doge");
+        check!(parse_type, "\"\\\\\"", "\"\\\\\"");
     }
 
     #[test]
     fn parse_type0() {
+        check!(parse_type, "doge", "doge");
+    }
+
+    #[test]
+    fn parse_type1() {
         check!(parse_type, "12345", "12345");
-    }
-
-    #[test]
-    fn parse_list0() {
-        check!(parse_list, "123 45 67     89    ", "(123 45 67 89)");
-    }
-
-    #[test]
-    fn parse_list1() {
-        check!(
-            parse_list,
-            "123 ( 4 5     ok is    it   working   ( 6      7 (        8 9 ) ) ) 67     89    ",
-            "(123 (4 5 ok is it working (6 7 (8 9))) 67 89)"
-        );
     }
 
     #[test]
