@@ -71,9 +71,11 @@ pub fn eval(mut mt: MalType, mut env: Rc<MalEnv>) -> Result<MalType> {
                     continue;
                 }
                 MalType::Symbol(ms) if ms.strcmp("do") => {
-                    return l[1..]
-                        .into_iter()
-                        .fold(Ok(MalType::Nil), |_, mt| Ok(eval(mt.clone(), env.clone())?));
+                    for mt in l[1..l.len() - 1].iter() {
+                        eval(mt.clone(), env.clone())?;
+                    }
+                    mt = l[l.len() - 1].clone();
+                    continue;
                 }
                 MalType::Symbol(ms) if ms.strcmp("if") => {
                     let cond = eval(l[1].clone(), env.clone())?;
@@ -90,7 +92,8 @@ pub fn eval(mut mt: MalType, mut env: Rc<MalEnv>) -> Result<MalType> {
                         }
                         _ => l[2].clone(),
                     };
-                    return eval(a, env.clone());
+                    mt = a;
+                    continue;
                 }
                 MalType::Symbol(ms) if ms.strcmp("fn*") => {
                     let a1 = l[1].clone();
