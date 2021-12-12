@@ -16,10 +16,6 @@ use std::{
 const MAL_SEP: &str = "\t \r\n,";
 const MAL_DELIM: &str = "[]{}()\'\"`~^@\t \r\n,;";
 
-fn ws0(i: &str) -> IResult<&str, &str> {
-    recognize(many0(one_of(MAL_SEP)))(i)
-}
-
 #[allow(unused_macros)]
 macro_rules! token_fn {
     ($fn: ident,$i: expr, $lit: literal) => {
@@ -46,6 +42,7 @@ token_fn!(quasi_quote, MalToken::QuasiQuote, "`");
 token_fn!(unquote, MalToken::Unquote, "~");
 token_fn!(with_meta, MalToken::WithMeta, "^");
 token_fn!(deref, MalToken::Deref, "@");
+token_fn!(comment_start, MalToken::CommentStart, ";");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MalToken<'a> {
@@ -61,6 +58,7 @@ pub enum MalToken<'a> {
     Deref,
     SpliceUnquote,
     WithMeta,
+    CommentStart,
     QuotedSequence(Cow<'a, str>), // Sequence starting with "
     Sequence(Cow<'a, str>),       // Seqeuence of characters not matching anyothers
 }
@@ -82,6 +80,7 @@ impl<'a> Display for MalToken<'a> {
             MalToken::WithMeta => write!(f, "with-meta"),
             MalToken::QuotedSequence(s) => write!(f, "\"{}\"", s),
             MalToken::Sequence(s) => write!(f, "{}", s),
+            MalToken::CommentStart => todo!(),
         }
     }
 }
@@ -205,7 +204,7 @@ pub fn parse_token<'a>(i: &'a str) -> IResult<&'a str, MalToken<'a>>
 where
 {
     preceded(
-        ws0,
+        recognize(many0(one_of(MAL_SEP))),
         alt((
             splice_unquote,
             left_brace,
@@ -234,6 +233,12 @@ where
                     tag("\""),
                 ),
                 |s: Option<String>| MalToken::QuotedSequence(Cow::Owned(s.unwrap_or_default())),
+            ),
+            preceded(
+                comment_start,
+                map(is_not("\n"), |s| {
+                    MalToken::Sequence(Cow::Owned(format!(";{}", s)))
+                }),
             ),
             map(is_not(MAL_DELIM), |s: &str| {
                 MalToken::Sequence(Cow::Owned(s.to_string()))

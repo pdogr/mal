@@ -1,5 +1,6 @@
 use crate::{eval::eval, MalEnv, Result};
 use std::{
+    cell::RefCell,
     fmt::{Display, Formatter},
     rc::Rc,
 };
@@ -22,8 +23,8 @@ pub enum MalType {
     Quoted(Box<MalType>),
     QuasiQuoted(Box<MalType>),
     Unquote(Box<MalType>),
-    Deref(Box<MalType>),
     SpliceUnquote(Box<MalType>),
+    Atom(Rc<RefCell<MalType>>),
 }
 
 impl PartialEq for MalType {

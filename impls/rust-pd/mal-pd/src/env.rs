@@ -11,7 +11,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MalEnv {
     map: RefCell<HashMap<MalSymbol, MalType>>,
-    outer: Option<Rc<MalEnv>>,
+    pub outer: Option<Rc<MalEnv>>,
 }
 
 impl MalEnv {

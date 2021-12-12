@@ -117,6 +117,13 @@ pub fn eval(mut mt: MalType, mut env: Rc<MalEnv>) -> Result<MalType> {
                         args, body, &env,
                     ))));
                 }
+                MalType::Symbol(ms) if ms.strcmp("eval") => {
+                    mt = eval(l[1].clone(), env.clone())?;
+                    if let Some(e) = &env.outer {
+                        env = e.clone();
+                    }
+                    continue;
+                }
                 _ => {
                     if let MalType::List(MalList(l)) = eval_ast(mt, &env)? {
                         let f = l[0].clone();

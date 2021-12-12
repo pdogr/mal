@@ -139,7 +139,10 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
             MalType::Unquote(Box::new(q))
         }),
         map(preceded(tag!(MalToken::Deref), parse_type), |q| {
-            MalType::Deref(Box::new(q))
+            MalType::List(MalList::new(vec![
+                MalType::Symbol(MalSymbol::new("deref")),
+                q,
+            ]))
         }),
         map(
             preceded(tag!(MalToken::WithMeta), tuple((parse_type, parse_type))),

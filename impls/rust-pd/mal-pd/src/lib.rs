@@ -1,5 +1,7 @@
 #![feature(box_into_inner)]
 extern crate rustyline;
+use std::{cell::RefCell, rc::Rc};
+
 pub use rustyline::{error::ReadlineError, Editor};
 extern crate nom;
 
@@ -91,7 +93,6 @@ pub fn print(mt: &MalType, print_readonly: bool) -> String {
             format!("({} {})", MalToken::QuasiQuote, print(q, print_readonly))
         }
         MalType::Unquote(q) => format!("({} {})", MalToken::Unquote, print(q, print_readonly)),
-        MalType::Deref(a) => format!("({} {})", MalToken::Deref, print(a, print_readonly)),
         MalType::WithMeta(a, b) => format!(
             "({} {} {})",
             MalToken::WithMeta,
@@ -101,7 +102,27 @@ pub fn print(mt: &MalType, print_readonly: bool) -> String {
         MalType::SpliceUnquote(s) => {
             format!("({} {})", MalToken::SpliceUnquote, print(s, print_readonly))
         }
-        MalType::Func(_func) => format!("#<function>"),
+        MalType::Func(_func) => format!(""),
+        MalType::Atom(a) => format!("(atom {})", print(&a.borrow(), print_readonly)),
+    }
+}
+
+pub fn read_str(s: &str) -> Result<MalType> {
+    let t: Vec<_> = MalLexer::lex(s)?
+        .into_iter()
+        .filter_map(|t| {
+            if let MalToken::Sequence(s) = &t {
+                if s.starts_with(";") {
+                    return None;
+                }
+            }
+            Some(t)
+        })
+        .collect();
+    let t = MalTokens(t.as_slice());
+    match parse(t).finish() {
+        Ok((_, ast)) => Ok(ast),
+        Err(e) => Err(format!("parsing error {:?}", e).into()),
     }
 }
 
@@ -207,5 +228,84 @@ pub fn make_env() -> std::rc::Rc<MalEnv> {
     binary_cmp!(env, "<=", <=);
     binary_cmp!(env, ">", >);
     binary_cmp!(env, ">=", >=);
+    env.insert(
+        MalSymbol::new("read-string"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0] {
+                MalType::Str(s) => read_str(s),
+                _ => Err(format!("expected string in read-string").into()),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("slurp"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0] {
+                MalType::Str(s) => {
+                    let contents = std::fs::read_to_string(&s.as_ref())?;
+                    Ok(MalType::Str(contents.into()))
+                }
+                _ => Err(format!("expected filename in slurp").into()),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("atom"),
+        MalType::Func(Box::new(MalFunc::from_closure(|args: Vec<MalType>| {
+            Ok(MalType::Atom(Rc::new(RefCell::new(args[0].clone()))))
+        }))),
+    );
+    env.insert(
+        MalSymbol::new("atom?"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0] {
+                MalType::Atom(_) => Ok(MalType::Bool(true)),
+                _ => Ok(MalType::Bool(false)),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("deref"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0] {
+                MalType::Atom(a) => Ok(a.borrow().clone()),
+                _ => Err(format!("expected atom as argument of deref").into()),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("reset!"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0].clone() {
+                MalType::Atom(a) => {
+                    let val = args[1].clone();
+                    a.replace(val.clone());
+                    Ok(val)
+                }
+                _ => Err(format!("expected atom as 1st argument of reset!").into()),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("swap!"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0].clone() {
+                MalType::Atom(a) => match args[1].clone() {
+                    MalType::Func(f) => {
+                        let mut func_args = vec![a.borrow().clone()];
+                        func_args = func_args
+                            .into_iter()
+                            .chain(args[2..].to_vec().into_iter())
+                            .collect();
+                        let val = f.call(func_args)?;
+                        a.replace(val.clone());
+                        Ok(val)
+                    }
+                    _ => Err(format!("expected func as 2nd argument of swap").into()),
+                },
+                _ => Err(format!("expected atom as 1st argument of swap").into()),
+            },
+        ))),
+    );
     return env;
 }
