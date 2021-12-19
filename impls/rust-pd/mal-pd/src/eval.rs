@@ -1,9 +1,67 @@
 use crate::{
-    ast::{MalFunc, MalHashMap, MalList, MalType, MalVec},
+    ast::{MalFunc, MalHashMap, MalList, MalSymbol, MalType, MalVec},
     env::MalEnv,
     Result,
 };
 use std::rc::Rc;
+
+pub fn not_unquote(l: Vec<MalType>) -> Result<MalType> {
+    let mut l = l.clone();
+    l.reverse();
+    let mut acc = Vec::new();
+    for elt in l.into_iter() {
+        match &elt {
+            MalType::List(MalList(elt_l)) if !elt_l.is_empty() => match &elt_l[0] {
+                MalType::Symbol(ms) if ms.strcmp("splice-unquote") => {
+                    acc = vec![
+                        MalType::Symbol(MalSymbol::new("concat")),
+                        elt_l[1].clone(),
+                        MalType::List(MalList(acc)),
+                    ]
+                }
+                _ => {
+                    acc = vec![
+                        MalType::Symbol(MalSymbol::new("cons")),
+                        quasiquote(elt)?,
+                        MalType::List(MalList(acc)),
+                    ]
+                }
+            },
+            _ => {
+                acc = vec![
+                    MalType::Symbol(MalSymbol::new("cons")),
+                    quasiquote(elt)?,
+                    MalType::List(MalList(acc)),
+                ]
+            }
+        }
+    }
+    Ok(MalType::List(MalList(acc)))
+}
+
+pub fn quasiquote(mt: MalType) -> Result<MalType> {
+    match &mt {
+        MalType::List(MalList(l)) => {
+            if l.is_empty() {
+                return Ok(mt);
+            }
+            match &l[0] {
+                MalType::Symbol(ms) if ms.strcmp("unquote") => Ok(l[1].clone()),
+                _ => not_unquote(l.to_vec()),
+            }
+        }
+        MalType::Symbol(_) | MalType::HashMap(_) => Ok(MalType::List(MalList(vec![
+            MalType::Symbol(MalSymbol::new("quote")),
+            mt,
+        ]))),
+        MalType::Vector(MalVec(l)) => Ok(MalType::List(MalList(vec![
+            MalType::Symbol(MalSymbol::new("vec")),
+            not_unquote(l.to_vec())?,
+        ]))),
+        _ => Ok(mt),
+    }
+}
+
 pub fn eval_ast(mt: MalType, env: &Rc<MalEnv>) -> Result<MalType> {
     if let MalType::Symbol(s) = mt {
         if let Some(env) = MalEnv::find(env, &s) {
@@ -69,6 +127,16 @@ pub fn eval(mut mt: MalType, mut env: Rc<MalEnv>) -> Result<MalType> {
                     env = new_env;
                     mt = a2;
                     continue;
+                }
+                MalType::Symbol(ms) if ms.strcmp("quote") => {
+                    return Ok(l[1].clone());
+                }
+                MalType::Symbol(ms) if ms.strcmp("quasiquote") => {
+                    mt = quasiquote(l[1].clone())?;
+                    continue;
+                }
+                MalType::Symbol(ms) if ms.strcmp("quasiquoteexpand") => {
+                    return quasiquote(l[1].clone());
                 }
                 MalType::Symbol(ms) if ms.strcmp("do") => {
                     for mt in l[1..l.len() - 1].iter() {

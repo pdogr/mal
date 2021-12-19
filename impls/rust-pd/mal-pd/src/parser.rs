@@ -130,13 +130,22 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
             MalType::HashMap,
         ),
         map(preceded(tag!(MalToken::Quote), parse_type), |q| {
-            MalType::Quoted(Box::new(q))
+            MalType::List(MalList::new(vec![
+                MalType::Symbol(MalSymbol::new("quote")),
+                q,
+            ]))
         }),
         map(preceded(tag!(MalToken::QuasiQuote), parse_type), |q| {
-            MalType::QuasiQuoted(Box::new(q))
+            MalType::List(MalList::new(vec![
+                MalType::Symbol(MalSymbol::new("quasiquote")),
+                q,
+            ]))
         }),
         map(preceded(tag!(MalToken::Unquote), parse_type), |q| {
-            MalType::Unquote(Box::new(q))
+            MalType::List(MalList::new(vec![
+                MalType::Symbol(MalSymbol::new("unquote")),
+                q,
+            ]))
         }),
         map(preceded(tag!(MalToken::Deref), parse_type), |q| {
             MalType::List(MalList::new(vec![
@@ -149,7 +158,10 @@ pub fn parse_type<'a>(i: MalTokens<'a>) -> IResult<MalTokens<'a>, MalType> {
             |(a, b)| MalType::WithMeta(Box::new(a), Box::new(b)),
         ),
         map(preceded(tag!(MalToken::SpliceUnquote), parse_type), |q| {
-            MalType::SpliceUnquote(Box::new(q))
+            MalType::List(MalList::new(vec![
+                MalType::Symbol(MalSymbol::new("splice-unquote")),
+                q,
+            ]))
         }),
         parse_hashkey,
         parse_keyword,

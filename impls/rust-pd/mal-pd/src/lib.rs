@@ -307,5 +307,42 @@ pub fn make_env() -> std::rc::Rc<MalEnv> {
             },
         ))),
     );
+    env.insert(
+        MalSymbol::new("cons"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[1] {
+                MalType::List(MalList(l)) | MalType::Vector(MalVec(l)) => {
+                    let mut vector = l.clone();
+                    vector.insert(0, args[0].clone());
+                    return Ok(MalType::List(MalList::new(vector)));
+                }
+                _ => Err(format!("expected list or vec as second argument").into()),
+            },
+        ))),
+    );
+    env.insert(
+        MalSymbol::new("concat"),
+        MalType::Func(Box::new(MalFunc::from_closure(|args: Vec<MalType>| {
+            let l = args.iter().fold(Vec::new(), |mut acc, arg| match &arg {
+                MalType::List(MalList(l)) | MalType::Vector(MalVec(l)) => {
+                    acc.extend(l.to_vec());
+                    acc
+                }
+                _ => acc,
+            });
+            Ok(MalType::List(MalList(l)))
+        }))),
+    );
+    env.insert(
+        MalSymbol::new("vec"),
+        MalType::Func(Box::new(MalFunc::from_closure(
+            |args: Vec<MalType>| match &args[0] {
+                MalType::List(MalList(l)) | MalType::Vector(MalVec(l)) => {
+                    Ok(MalType::Vector(MalVec(l.to_vec())))
+                }
+                _ => Err(format!("expected list or vec as arguments").into()),
+            },
+        ))),
+    );
     return env;
 }
